@@ -10,4 +10,3 @@ EXPOSE 8080
 CMD ["bee", "run"]
 
 VOLUME /go/src/aiomaf/build
-ENTRYPOINT make
