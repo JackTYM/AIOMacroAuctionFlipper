@@ -8,3 +8,6 @@ RUN mkdir -p "$APP_HOME"
 WORKDIR "$APP_HOME"
 EXPOSE 8080
 CMD ["bee", "run"]
+
+VOLUME /go/src/aiomaf/build
+ENTRYPOINT make
