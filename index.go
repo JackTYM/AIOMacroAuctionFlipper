@@ -133,6 +133,8 @@ func main() {
 func dataGrabLoop() {
 	for true {
 		if time.Now().UnixMilli() >= lastUpdated+55000 && lastUpdated != getHypixelPage(0).LastUpdated {
+			lowestBins = callLowestBin()
+			averageLowestBins = callAverageLowestBin()
 			go callHypixelAuctions(lastUpdated)
 			lastUpdated = getHypixelPage(0).LastUpdated
 		}
