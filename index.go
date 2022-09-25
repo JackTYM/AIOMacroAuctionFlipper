@@ -304,17 +304,41 @@ func getHypixelPage(page int) AuctionResponse {
 
 	if err != nil {
 		fmt.Println("Error! " + err.Error() + " 312")
+		return AuctionResponse{
+			Success:       false,
+			Page:          0,
+			TotalPages:    0,
+			TotalAuctions: 0,
+			LastUpdated:   0,
+			Auctions:      nil,
+		}
 	}
 
 	responseData, err := ioutil.ReadAll(response.Body)
 	if err != nil {
 		fmt.Println("Error! " + err.Error() + " 318")
+		return AuctionResponse{
+			Success:       false,
+			Page:          0,
+			TotalPages:    0,
+			TotalAuctions: 0,
+			LastUpdated:   0,
+			Auctions:      nil,
+		}
 	}
 
 	var responseObject AuctionResponse
 	err = json.Unmarshal(responseData, &responseObject)
 	if err != nil {
 		fmt.Println("Error! " + err.Error() + " 316")
+		return AuctionResponse{
+			Success:       false,
+			Page:          0,
+			TotalPages:    0,
+			TotalAuctions: 0,
+			LastUpdated:   0,
+			Auctions:      nil,
+		}
 	}
 	return responseObject
 }
@@ -325,11 +349,13 @@ func callLowestBin() map[string]interface{} {
 
 	if err != nil {
 		fmt.Println("Error! " + err.Error() + " 331")
+		return nil
 	}
 
 	responseData, err := ioutil.ReadAll(response.Body)
 	if err != nil {
 		fmt.Println("Error! " + err.Error() + " 337")
+		return nil
 	}
 
 	var itemPrices map[string]interface{}
@@ -340,6 +366,7 @@ func callLowestBin() map[string]interface{} {
 	err = d.Decode(&itemPrices)
 	if err != nil {
 		fmt.Println("Error! " + err.Error() + " 342")
+		return nil
 	}
 
 	return itemPrices
@@ -351,11 +378,13 @@ func callAverageLowestBin() map[string]interface{} {
 
 	if err != nil {
 		fmt.Println("Error! " + err.Error() + " 335")
+		return nil
 	}
 
 	responseData, err := ioutil.ReadAll(response.Body)
 	if err != nil {
 		fmt.Println("Error! " + err.Error() + " 361")
+		return nil
 	}
 
 	var itemPrices map[string]interface{}
@@ -366,6 +395,7 @@ func callAverageLowestBin() map[string]interface{} {
 	err = d.Decode(&itemPrices)
 	if err != nil {
 		fmt.Println("Error! " + err.Error() + " 369")
+		return nil
 	}
 
 	return itemPrices
