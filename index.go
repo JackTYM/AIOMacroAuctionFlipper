@@ -204,7 +204,7 @@ func checkAuctions(auctionList []Auction) {
 			uuidList = append(uuidList, a.UUID)
 
 			lbName := inGameToApi(a.ItemName, a.ItemLore)
-			if lowestBins[lbName] != nil {
+			if lowestBins[lbName] != nil && averageLowestBins[lbName] != nil {
 				priceFloat, _ := lowestBins[lbName].(json.Number).Float64()
 				AveragePriceFloat, _ := averageLowestBins[lbName].(json.Number).Float64()
 				lowestBin := int64(priceFloat)
