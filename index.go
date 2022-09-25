@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/dustin/go-humanize"
 	"github.com/gorilla/mux"
+	"golang.org/x/exp/slices"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,33 +20,31 @@ import (
 )
 
 type Auction struct {
-	UUID             string   `json:"uuid"`
-	Auctioneer       string   `json:"auctioneer"`
-	ProfileId        string   `json:"profile_id"`
-	Coop             []string `json:"coop"`
-	Start            int64    `json:"start"`
-	End              int64    `json:"end"`
-	ItemName         string   `json:"item_name"`
-	ItemLore         string   `json:"item_lore"`
-	Extra            string   `json:"extra"`
-	Category         string   `json:"category"`
-	StartingBid      int64    `json:"starting_bid"`
-	ItemBytes        string   `json:"item_bytes"`
-	Claimed          bool     `json:"claimed"`
-	ClaimedBidders   []string `json:"claimed_bidders"`
-	HighestBidAmount int64    `json:"highest_bid_amount"`
-	LastUpdated      int64    `json:"last_updated"`
-	Bin              bool     `json:"bin"`
-	Bids             []Bid    `json:"bids"`
-	ItemUUID         string   `json:"item_uuid"`
-}
-
-type Bid struct {
-	AuctionId string `json:"auction_id"`
-	Bidder    string `json:"bidder"`
-	ProfileId string `json:"profile_id"`
-	Amount    string `json:"amount"`
-	Timestamp int64  `json:"timestamp"`
+	UUID             string        `json:"uuid"`
+	Auctioneer       string        `json:"auctioneer"`
+	ProfileID        string        `json:"profile_id"`
+	Coop             []string      `json:"coop"`
+	Start            int64         `json:"start"`
+	End              int64         `json:"end"`
+	ItemName         string        `json:"item_name"`
+	ItemLore         string        `json:"item_lore"`
+	Extra            string        `json:"extra"`
+	Category         string        `json:"category"`
+	Tier             string        `json:"tier"`
+	StartingBid      int           `json:"starting_bid"`
+	ItemBytes        string        `json:"item_bytes"`
+	Claimed          bool          `json:"claimed"`
+	ClaimedBidders   []interface{} `json:"claimed_bidders"`
+	HighestBidAmount int           `json:"highest_bid_amount"`
+	LastUpdated      int64         `json:"last_updated"`
+	Bin              bool          `json:"bin"`
+	Bids             []struct {
+		AuctionID string `json:"auction_id"`
+		Bidder    string `json:"bidder"`
+		ProfileID string `json:"profile_id"`
+		Amount    int    `json:"amount"`
+		Timestamp int64  `json:"timestamp"`
+	} `json:"bids"`
 }
 
 type AuctionResponse struct {
@@ -56,24 +55,27 @@ type AuctionResponse struct {
 	LastUpdated   int64     `json:"lastUpdated"`
 	Auctions      []Auction `json:"auctions"`
 }
-type AuctionValue struct {
-	UUID                  string `json:"uuid"`
-	ItemName              string `json:"item_name"`
-	InternalId            string `json:"internal_id"`
-	StartingBid           int64  `json:"starting_bid"`
-	LowestBIN             int64  `json:"lowest_bin"`
-	Profit                int64  `json:"profit"`
-	PotentialManipulation bool   `json:"potential_manipulation"`
+
+type AuctionFlip struct {
+	UUID                  string
+	ItemName              string
+	Price                 int64
+	LowestBIN             int64
+	Profit                int64
+	PotentialManipulation bool
+	TimeAdded             int64
 }
 
-var lastUpdated int64 = 0
-var globalTest bool
-var globalAuctions []Auction
-var lowestBins map[string]interface{}
-var averageLowestBins map[string]interface{}
-var lowestBinToItemName map[string]string
-var itemNameToLowestBinName map[string]string
-var reforgeNames = [27]string{"Gentle", "Odd", "Fast", "Fair", "Epic", "Sharp", "Heroic", "Spicy", "Legendary", "Dirty", "Fabled", "Suspicious", "Gilded", "Warped", "Withered", "Bulky", "Salty", "Treacherous", "Stiff", "Lucky", "Very", "Highly", "Extremely", "Not So", "Thicc", "Absolutely", "Even More"}
+var (
+	lastUpdated             int64 = 0
+	globalFlips             []AuctionFlip
+	lowestBins              map[string]interface{}
+	averageLowestBins       map[string]interface{}
+	lowestBinToItemName     map[string]string
+	itemNameToLowestBinName map[string]string
+	reforgeNames            = [27]string{"Gentle", "Odd", "Fast", "Fair", "Epic", "Sharp", "Heroic", "Spicy", "Legendary", "Dirty", "Fabled", "Suspicious", "Gilded", "Warped", "Withered", "Bulky", "Salty", "Treacherous", "Stiff", "Lucky", "Very", "Highly", "Extremely", "Not So", "Thicc", "Absolutely", "Even More"}
+	uuidList                []string
+)
 
 // Main function
 func main() {
@@ -82,12 +84,15 @@ func main() {
 	// Open our jsonFile
 	// if we os.Open returns an error then handle it
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("Error! " + err.Error() + " 99")
 	}
 	byteValue, _ := ioutil.ReadAll(jsonFile)
 
 	var result map[string]interface{}
-	json.Unmarshal(byteValue, &result)
+	err = json.Unmarshal(byteValue, &result)
+	if err != nil {
+		fmt.Println("Error! " + err.Error() + " 106")
+	}
 	lowestBinToItemName = make(map[string]string)
 	itemNameToLowestBinName = make(map[string]string)
 
@@ -99,13 +104,17 @@ func main() {
 	}
 
 	// defer the closing of our jsonFile so that we can parse it later on
-	defer jsonFile.Close()
+	defer func(jsonFile *os.File) {
+		err := jsonFile.Close()
+		if err != nil {
+			fmt.Println("Error! " + err.Error() + " 112")
+		}
+	}(jsonFile)
 	lowestBins = callLowestBin()
 	averageLowestBins = callAverageLowestBin()
 
 	// Start the item grab loop
 	go dataGrabLoop()
-	fmt.Println("Grabbing update data")
 
 	// Init the mux router
 	router := mux.NewRouter()
@@ -122,191 +131,156 @@ func main() {
 
 // Grab auction data every 60 seconds
 func dataGrabLoop() {
-	if lastUpdated == 0 {
-		// get the first page to get the lastUpdatedTime
-		responseObject := getHypixelPage(0)
-		lastUpdated = responseObject.LastUpdated
-	}
-
-	wg := &sync.WaitGroup{}
 	for true {
-		if !globalTest {
-			wg.Add(1)
-			go checkReady(wg, time.Now().UnixMilli() >= lastUpdated+60000)
-		} else {
-			if lastUpdated != getHypixelPage(0).LastUpdated {
-				globalTest = false
-				break
-			}
+		if time.Now().UnixMilli() >= lastUpdated+55000 && lastUpdated != getHypixelPage(0).LastUpdated {
+			go callHypixelAuctions(lastUpdated)
+			lastUpdated = getHypixelPage(0).LastUpdated
 		}
 	}
-
-	fmt.Printf("Grab Success! Refreshed Api in %d\n", time.Now().UnixMilli()-getHypixelPage(0).LastUpdated)
-	globalAuctions = callHypixelAuctions(lastUpdated)
-	lastUpdated = 0
-
-	go dataGrabLoop()
-	return
 }
 
-func checkReady(wg *sync.WaitGroup, valueToWait bool) {
-	if valueToWait {
-		globalTest = true
-	}
-	wg.Done()
-	return
-}
-
-/*
 // send to webhook
-func parseItems() {
-	var uuidList []string
-
-	// filter bin == true, calc value, sort by value
-	for _, a := range globalAuctions {
-		parse := true
-		for _, u := range uuidList {
-			if u == a.UUID {
-				parse = false
-			}
+func sendWebhooks(flips []AuctionFlip) {
+	for _, a := range flips {
+		message := map[string]interface{}{
+			"content": nil,
+			"embeds": []map[string]interface{}{
+				{
+					"title": "Auction Flip Detected",
+					"fields": []map[string]string{
+						{
+							"name":   "Item:",
+							"value":  a.ItemName,
+							"inline": "true",
+						},
+						{
+							"name":   "Profit:",
+							"value":  humanize.Comma(a.Profit),
+							"inline": "true",
+						},
+						{
+							"name":   "Lowest BIN:",
+							"value":  humanize.Comma(a.LowestBIN),
+							"inline": "true",
+						},
+						{
+							"name":   "Price:",
+							"value":  humanize.Comma(a.Price),
+							"inline": "true",
+						},
+						{
+							"name":   "Potential Manipulation:",
+							"value":  strconv.FormatBool(a.PotentialManipulation),
+							"inline": "true",
+						},
+						{
+							"name":   "Auction Id:",
+							"value":  a.UUID,
+							"inline": "true",
+						},
+					},
+				},
+			},
+			"attachments": []string{},
 		}
-		if a.Bin && parse {
+
+		bytesRepresentation, err := json.Marshal(message)
+		if err != nil {
+			fmt.Println("Error! " + err.Error() + " 196")
+		}
+
+		_, err = http.Post("https://discord.com/api/webhooks/1023043258756124712/GE9HaPfTb11M7K93C5z6i7CXAzTMusP5laXUgvPj5BywjmQd8n132C68HT56caGHke4V", "application/json", bytes.NewBuffer(bytesRepresentation))
+		if err != nil {
+			fmt.Println("Error! " + err.Error() + " 201")
+		}
+	}
+}
+
+func checkAuctions(auctionList []Auction) {
+	var flips []AuctionFlip
+
+	for _, a := range auctionList {
+		if !slices.Contains(uuidList, a.UUID) && a.Bin {
+			uuidList = append(uuidList, a.UUID)
+
 			lbName := inGameToApi(a.ItemName, a.ItemLore)
 			if lowestBins[lbName] != nil {
 				priceFloat, _ := lowestBins[lbName].(json.Number).Float64()
 				AveragePriceFloat, _ := averageLowestBins[lbName].(json.Number).Float64()
 				lowestBin := int64(priceFloat)
 				averageLowestBin := int64(AveragePriceFloat)
-				var potentialManipulation bool
-				averageIncrease := 1000 - (1000 * (lowestBin * 1000) / (averageLowestBin * 1000))
-				if averageIncrease < 0 {
-					if averageIncrease <= -1000 {
-						potentialManipulation = true
-					} else {
-						potentialManipulation = false
-					}
-				} else {
-					if averageIncrease >= 1000 {
-						potentialManipulation = true
-					} else {
-						potentialManipulation = false
-					}
+
+				if averageLowestBin == 0 {
+					averageLowestBin = 1
 				}
+
+				averageIncrease := 1000 - (1000 * (lowestBin * 1000) / (averageLowestBin * 1000))
+
 				if lowestBin > 0 {
-					av := AuctionValue{
-						UUID:                  a.UUID,
-						ItemName:              a.ItemName,
-						InternalId:            lbName,
-						StartingBid:           a.StartingBid,
-						LowestBIN:             lowestBin,
-						Profit:                lowestBin - a.StartingBid,
-						PotentialManipulation: potentialManipulation,
+					if lowestBin-int64(a.StartingBid) >= 100000 {
+						flips = append(flips, AuctionFlip{
+							UUID:                  a.UUID,
+							ItemName:              a.ItemName,
+							Price:                 int64(a.StartingBid),
+							LowestBIN:             lowestBin,
+							Profit:                lowestBin - int64(a.StartingBid),
+							PotentialManipulation: averageIncrease <= -1000 || averageIncrease >= 1000,
+							TimeAdded:             time.Now().UnixMilli(),
+						})
 					}
-					//if av.Profit >= 500000 {
-
-					message := fmt.Sprintf("{\n  \"content\": null,\n  \"embeds\": [\n    {\n      \"title\": \"Auction Flip Detected\",\n      \"description\": \"Item: %d\\nProfit: %d\\nPrice: %d\\nLowest BIN: %d\\nPotential Manipulation: %d\\nAuction Id: %d\",\n      \"color\": 1625924\n    }\n  ],\n  \"attachments\": []\n}", av.ItemName, av.Profit, av.StartingBid, av.LowestBIN, av.PotentialManipulation, av.UUID)
-
-					jsonBytes, err := json.Marshal(message)
-
-					post, err := http.Post("https://discord.com/api/webhooks/987961746566287390/2WOulebkyN53jqe3ZpqyQsz0IYEbFa_dTu6KrpDgYEX5bh6SNuKkwHUHr6F2qVQ6YLya", "application/json", bytes.NewBuffer(jsonBytes))
-
-					fmt.Println(err)
-					fmt.Println(post)
-
-					//}
 				}
 			}
 		}
 	}
-}*/
+
+	globalFlips = append(globalFlips, flips...)
+
+	go sendWebhooks(flips)
+}
 
 // response and request handlers
 func getClientItems(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Handler for /items")
 
-	var uuidList []string
-
 	var minProfit int64
-	minProfit, _ = strconv.ParseInt(r.FormValue("lowest_profit"), 10, 64)
-	var enchantments bool
-	enchantments, _ = strconv.ParseBool(r.FormValue("enchantments"))
+	minProfit, _ = strconv.ParseInt(r.FormValue("min_profit"), 10, 64)
+	var maxPrice int64
+	maxPrice, _ = strconv.ParseInt(r.FormValue("max_price"), 10, 64)
 	var petSkins bool
 	petSkins, _ = strconv.ParseBool(r.FormValue("pet_skins"))
 	var manipulation bool
 	manipulation, _ = strconv.ParseBool(r.FormValue("manipulation"))
-	auctionValues := make([]AuctionValue, 0)
+	auctionValues := make([]AuctionFlip, 0)
 
-	// filter bin == true, calc value, sort by value
-	for _, a := range globalAuctions {
-		parse := true
-		for _, u := range uuidList {
-			if u == a.UUID {
-				parse = false
-			}
-		}
-		if a.Bin && parse {
-			lbName := inGameToApi(a.ItemName, a.ItemLore)
-			if lowestBins[lbName] != nil {
-				priceFloat, _ := lowestBins[lbName].(json.Number).Float64()
-				AveragePriceFloat, _ := averageLowestBins[lbName].(json.Number).Float64()
-				lowestBin := int64(priceFloat)
-				averageLowestBin := int64(AveragePriceFloat)
-				var potentialManipulation bool
-				averageIncrease := 1000 - (1000 * (lowestBin * 1000) / (averageLowestBin * 1000))
-				if averageIncrease < 0 {
-					if averageIncrease <= -1000 {
-						potentialManipulation = true
-					} else {
-						potentialManipulation = false
-					}
-				} else {
-					if averageIncrease >= 1000 {
-						potentialManipulation = true
-					} else {
-						potentialManipulation = false
-					}
-				}
-				if lowestBin > 0 {
-					av := AuctionValue{
-						UUID:                  a.UUID,
-						ItemName:              a.ItemName,
-						InternalId:            lbName,
-						StartingBid:           a.StartingBid,
-						LowestBIN:             lowestBin,
-						Profit:                lowestBin - a.StartingBid,
-						PotentialManipulation: potentialManipulation,
-					}
-					if av.Profit > minProfit && (enchantments || (!enchantments && a.ItemName != "Enchanted Book") && (petSkins || (!petSkins && !strings.Contains(a.ItemName, "Skin"))) && (manipulation || (!manipulation && !av.PotentialManipulation))) {
-						uuidList = append(uuidList, a.UUID)
-						auctionValues = append(auctionValues, av)
-					} else {
-						//fmt.Printf("Skipping %s with starting bid %d and lowestBin %d\n", av.ItemName, av.StartingBid, lowestBin)
-					}
-				}
-			}
+	// filter calc value, sort by value
+	for _, a := range globalFlips {
+		if time.Now().UnixMilli()-a.TimeAdded <= 100000 && a.Profit > minProfit && (a.Price < maxPrice || maxPrice == 0) && (petSkins || (!petSkins && !strings.Contains(a.ItemName, "Skin"))) && (manipulation || (!manipulation && !a.PotentialManipulation)) {
+			fmt.Println("Added item!")
+			auctionValues = append(auctionValues, a)
+		} else {
+			fmt.Println("Ignored item!")
 		}
 	}
 	sort.Slice(auctionValues, func(i, j int) bool {
 		return auctionValues[i].Profit > auctionValues[j].Profit
 	})
 
-	json.NewEncoder(w).Encode(auctionValues)
+	err := json.NewEncoder(w).Encode(auctionValues)
+	if err != nil {
+		fmt.Println("Error! " + err.Error() + " 291")
+	}
 }
 
-func callHypixelAuctions(lastRunTime int64) []Auction {
-	limiter := make(chan bool, 10)
+func callHypixelAuctions(lastRunTime int64) {
+	limiter := make(chan bool, 15)
 
-	var auctionList [][]Auction
 	wg := sync.WaitGroup{}
 
-	var auctions []Auction
-
 	// get the first page to get the page count
-	responseObject := getHypixelPage(0)
-	totalPages := responseObject.TotalPages
+	totalPages := getHypixelPage(0).TotalPages
 
-	fmt.Printf("Calling HypixelAuctions to get all items updated more recently than %d\n", lastRunTime)
-	for i := 1; i < totalPages; i++ {
+	fmt.Printf("Calling Hypixel Auctions to get all items updated more recently than %d\n", lastRunTime)
+	for i := 1; i <= totalPages; i++ {
 		wg.Add(1)
 		go func(page int) {
 			limiter <- true
@@ -314,35 +288,34 @@ func callHypixelAuctions(lastRunTime int64) []Auction {
 				<-limiter
 				wg.Done()
 			}()
-			fmt.Printf("Calling for page %d\n", page)
+			//fmt.Printf("Calling for page %d\n", page)
 			responseObject := getHypixelPage(page)
 			if len(responseObject.Auctions) > 0 {
-				auctionList = append(auctionList, responseObject.Auctions)
+				go checkAuctions(responseObject.Auctions)
 			}
 		}(i)
 	}
 	wg.Wait()
-	for _, element := range auctionList {
-		auctions = append(auctions, element...)
-	}
-	return auctions
+	fmt.Printf("Grab Success! Refreshed Api in %s\n", time.Now().Sub(time.Unix(0, (lastRunTime+60000)*int64(time.Millisecond))).String())
 }
 
 func getHypixelPage(page int) AuctionResponse {
 	response, err := http.Get(fmt.Sprintf("https://api.hypixel.net/skyblock/auctions?page=%d", page))
 
 	if err != nil {
-		fmt.Print(err.Error())
-		os.Exit(1)
+		fmt.Println("Error! " + err.Error() + " 312")
 	}
 
 	responseData, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("Error! " + err.Error() + " 318")
 	}
 
 	var responseObject AuctionResponse
-	json.Unmarshal(responseData, &responseObject)
+	err = json.Unmarshal(responseData, &responseObject)
+	if err != nil {
+		fmt.Println("Error! " + err.Error() + " 316")
+	}
 	return responseObject
 }
 
@@ -351,13 +324,12 @@ func callLowestBin() map[string]interface{} {
 	fmt.Println("Calling Lowest Bin to get value for items")
 
 	if err != nil {
-		fmt.Print(err.Error())
-		os.Exit(1)
+		fmt.Println("Error! " + err.Error() + " 331")
 	}
 
 	responseData, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("Error! " + err.Error() + " 337")
 	}
 
 	var itemPrices map[string]interface{}
@@ -365,7 +337,10 @@ func callLowestBin() map[string]interface{} {
 	d := json.NewDecoder(bytes.NewReader(responseData))
 	d.UseNumber()
 
-	d.Decode(&itemPrices)
+	err = d.Decode(&itemPrices)
+	if err != nil {
+		fmt.Println("Error! " + err.Error() + " 342")
+	}
 
 	return itemPrices
 }
@@ -375,13 +350,12 @@ func callAverageLowestBin() map[string]interface{} {
 	fmt.Println("Calling Average Lowest Bin to get value for items")
 
 	if err != nil {
-		fmt.Print(err.Error())
-		os.Exit(1)
+		fmt.Println("Error! " + err.Error() + " 335")
 	}
 
 	responseData, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("Error! " + err.Error() + " 361")
 	}
 
 	var itemPrices map[string]interface{}
@@ -389,7 +363,10 @@ func callAverageLowestBin() map[string]interface{} {
 	d := json.NewDecoder(bytes.NewReader(responseData))
 	d.UseNumber()
 
-	d.Decode(&itemPrices)
+	err = d.Decode(&itemPrices)
+	if err != nil {
+		fmt.Println("Error! " + err.Error() + " 369")
+	}
 
 	return itemPrices
 }
@@ -584,40 +561,6 @@ func inGameToApi(inGame string, lore string) string {
 		api = "SMALL_BACKPACK"
 	case "Spirit Bow":
 		api = "ITEM_SPIRIT_BOW"
-	case "Enchanted Book":
-		m1 := regexp.MustCompile("(?i)\u00a7[0-9a-fk-or]")
-		enchant := m1.ReplaceAllString(strings.Split(lore, "\n")[0], "")
-		if strings.Contains(enchant, ",") {
-			enchant = strings.Split(enchant, ",")[0]
-		}
-		var enchantNum string
-		switch strings.Split(enchant, " ")[len(strings.Split(enchant, " "))-1] {
-		case "I":
-			enchantNum = "1"
-		case "II":
-			enchantNum = "2"
-		case "III":
-			enchantNum = "3"
-		case "IV":
-			enchantNum = "4"
-		case "V":
-			enchantNum = "5"
-		case "VI":
-			enchantNum = "6"
-		case "VII":
-			enchantNum = "7"
-		case "VIII":
-			enchantNum = "8"
-		case "IX":
-			enchantNum = "9"
-		case "X":
-			enchantNum = "10"
-		default:
-			enchantNum = "0"
-		}
-		enchant = strings.ReplaceAll(enchant, " "+strings.Split(enchant, " ")[len(strings.Split(enchant, " "))-1], "")
-		enchant = strings.ToUpper(strings.ReplaceAll(enchant, " ", "_") + ";" + enchantNum)
-		api = enchant
 	default:
 		api = itemNameToLowestBinName[inGame]
 	}
