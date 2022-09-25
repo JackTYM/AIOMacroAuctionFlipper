@@ -125,8 +125,8 @@ func main() {
 	router.HandleFunc("/items", getClientItems).Methods("GET")
 
 	// serve the app
-	fmt.Println("Server at 8080")
-	log.Fatal(http.ListenAndServe(":8080", router))
+	fmt.Println("Server at 4976")
+	log.Fatal(http.ListenAndServe(":4976", router))
 }
 
 // Grab auction data every 60 seconds
