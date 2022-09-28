@@ -129,14 +129,33 @@ func main() {
 	log.Fatal(http.ListenAndServe(":4976", router))
 }
 
+var refreshInt int
+
+func refresh() {
+	if refreshInt >= 5 {
+		refreshInt = 0
+		lowestBIN := callLowestBin()
+		if len(lowestBIN) != 0 {
+			lowestBins = lowestBIN
+		}
+		averageLowestBIN := callAverageLowestBin()
+		if len(averageLowestBIN) != 0 {
+			averageLowestBins = averageLowestBIN
+		}
+
+		globalFlips = globalFlips[:0]
+		return
+	}
+	refreshInt++
+}
+
 // Grab auction data every 60 seconds
 func dataGrabLoop() {
 	for true {
 		if time.Now().UnixMilli() >= lastUpdated+55000 && lastUpdated != getHypixelPage(0).LastUpdated {
-			//lowestBins = callLowestBin()
-			//averageLowestBins = callAverageLowestBin()
 			go callHypixelAuctions(lastUpdated)
 			lastUpdated = getHypixelPage(0).LastUpdated
+			refresh()
 		}
 	}
 }
@@ -236,6 +255,10 @@ func checkAuctions(auctionList []Auction) {
 	}
 
 	globalFlips = append(globalFlips, flips...)
+
+	if len(globalFlips) != 0 {
+		fmt.Println(strconv.Itoa(len(globalFlips)) + " In Flips")
+	}
 
 	go sendWebhooks(flips)
 }
