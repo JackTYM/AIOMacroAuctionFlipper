@@ -134,6 +134,9 @@ var refreshInt int
 func refresh() {
 	if refreshInt >= 5 {
 		refreshInt = 0
+
+		fmt.Println("Refreshing!")
+
 		lowestBIN := callLowestBin()
 		if len(lowestBIN) != 0 {
 			lowestBins = lowestBIN
