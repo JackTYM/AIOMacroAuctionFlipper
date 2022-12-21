@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/dustin/go-humanize"
 	"github.com/gorilla/mux"
+	"github.com/naoina/toml"
 	"golang.org/x/exp/slices"
 	"io/ioutil"
 	"log"
@@ -66,6 +67,11 @@ type AuctionFlip struct {
 	TimeAdded             int64
 }
 
+type tomlConfig struct {
+	Webhook string ``
+	Port    int
+}
+
 var (
 	lastUpdated             int64 = 0
 	globalFlips             []AuctionFlip
@@ -75,6 +81,7 @@ var (
 	itemNameToLowestBinName map[string]string
 	reforgeNames            = [27]string{"Gentle", "Odd", "Fast", "Fair", "Epic", "Sharp", "Heroic", "Spicy", "Legendary", "Dirty", "Fabled", "Suspicious", "Gilded", "Warped", "Withered", "Bulky", "Salty", "Treacherous", "Stiff", "Lucky", "Very", "Highly", "Extremely", "Not So", "Thicc", "Absolutely", "Even More"}
 	uuidList                []string
+	config                  tomlConfig
 )
 
 // Main function
@@ -87,6 +94,18 @@ func main() {
 		fmt.Println("Error! " + err.Error() + " 99")
 	}
 	byteValue, _ := ioutil.ReadAll(jsonFile)
+
+	f, err := os.Open("config.toml")
+	if err != nil {
+		fmt.Println("Error! " + err.Error() + " 100")
+	}
+	defer f.Close()
+	err = toml.NewDecoder(f).Decode(&config)
+	if err != nil {
+		fmt.Println("Error! " + err.Error() + " 105")
+	}
+
+	fmt.Println(config)
 
 	var result map[string]interface{}
 	err = json.Unmarshal(byteValue, &result)
@@ -125,8 +144,8 @@ func main() {
 	router.HandleFunc("/items", getClientItems).Methods("GET")
 
 	// serve the app
-	fmt.Println("Server at 4976")
-	log.Fatal(http.ListenAndServe(":4976", router))
+	fmt.Println("Server at localhost:" + strconv.Itoa(config.Port))
+	log.Fatal(http.ListenAndServe(":"+strconv.Itoa(config.Port), router))
 }
 
 var refreshInt int
@@ -213,7 +232,7 @@ func sendWebhooks(flips []AuctionFlip) {
 			fmt.Println("Error! " + err.Error() + " 196")
 		}
 
-		_, err = http.Post("https://discord.com/api/webhooks/1023043258756124712/GE9HaPfTb11M7K93C5z6i7CXAzTMusP5laXUgvPj5BywjmQd8n132C68HT56caGHke4V", "application/json", bytes.NewBuffer(bytesRepresentation))
+		_, err = http.Post(config.Webhook, "application/json", bytes.NewBuffer(bytesRepresentation))
 		if err != nil {
 			fmt.Println("Error! " + err.Error() + " 201")
 		}
@@ -263,7 +282,9 @@ func checkAuctions(auctionList []Auction) {
 		fmt.Println(strconv.Itoa(len(globalFlips)) + " In Flips")
 	}
 
-	go sendWebhooks(flips)
+	if config.Webhook != "" {
+		go sendWebhooks(flips)
+	}
 }
 
 // response and request handlers
